@@ -70,3 +70,4 @@ Thumbs.db
 # Docker / Logs
 *.log
 logs/
+data/

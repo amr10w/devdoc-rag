@@ -1,11 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "devdoc-rag"
 version = "0.1.0"
+description = "DevDoc RAG - Technical Documentation Q&A and Retrieval Engine"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "fastembed>=0.4.0",
+    "langchain-text-splitters>=1.1.2",
+    "numpy>=1.26.0",
+    "pandas>=3.0.5",
     "pydantic>=2.13.5",
     "python-dotenv>=1.2.3",
+    "qdrant-client>=1.19.0",
     "requests>=2.34.2",
-    "sentence-transformers>=6.0.0",
     "tqdm>=4.70.0",
 ]
+
+[project.scripts]
+devdoc-ground-truth = "src.evaluation.generate_ground_truth:main"
+devdoc-ingest = "src.ingestion.ingest_qdrant:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
