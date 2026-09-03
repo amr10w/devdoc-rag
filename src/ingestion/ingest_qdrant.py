@@ -1,11 +1,12 @@
 """
 src/ingestion/ingest_qdrant.py
 
-Ingests documentation chunks into Qdrant (Cloud or Local Embedded) using ONNX embeddings.
-Sets up vector configurations, payload indices (full-text and keyword), and uploads points in batches.
+Ingests documentation chunks into Qdrant (Cloud or Local Embedded) using Ollama embeddings (Offline Mode).
+Sets up 384-dimensional vector configurations, payload indices (full-text and keyword), and uploads points in batches.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import time
@@ -13,43 +14,46 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import ollama
 from dotenv import find_dotenv, load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from tqdm.auto import tqdm
 
-from src.embeddings import ONNXEmbedder
-
 # 1. Environment Loading: Check src/.env, root .env, or find_dotenv()
-env_paths = [
-    Path("src/.env"),
-    Path(".env"),
-    Path(__file__).resolve().parent.parent / ".env",
-    Path(__file__).resolve().parent.parent.parent / ".env",
-]
-loaded = False
-for p in env_paths:
-    if p.exists():
-        load_dotenv(dotenv_path=p, override=True)
-        loaded = True
-        break
-if not loaded:
-    load_dotenv(find_dotenv())
+load_dotenv(find_dotenv())
 
-# Read Qdrant credentials with flexible case matching
-DEFAULT_QDRANT_URL = (
-    os.getenv("Qdrant_API_URL")
-    or os.getenv("QDRANT_API_URL")
-    or os.getenv("QDRANT_URL")
-    or None
-)
-DEFAULT_QDRANT_API_KEY = (
-    os.getenv("Qdrant_API_KEY")
-    or os.getenv("QDRANT_API_KEY")
-    or None
-)
+# Read Qdrant credentials with flexible fallback
+DEFAULT_QDRANT_URL = os.getenv("QDRANT_API_URL", None)
+DEFAULT_QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 DEFAULT_STORAGE_PATH = os.getenv("QDRANT_STORAGE_PATH", "src/data/qdrant_storage")
-DEFAULT_COLLECTION_NAME = "devdoc_chunks"
+DEFAULT_COLLECTION_NAME = "devdoc"
+
+# ---------------------------------------------------------------------------
+# Embedding Architecture Notes:
+#
+# OFFLINE MODE (This Script):
+#   - Embedder: OllamaEmbedder via official `ollama` Python library.
+#   - Model: configurable (default: qwen3-embedding:latest).
+#   - Purpose: Batch ingestion of document chunks into Qdrant (OFFLINE ONLY).
+#   - Vector Dimension: 384. The ollama `embed` API handles truncation and
+#     dimension alignment natively (truncate=True, dimensions=384).
+#
+# ONLINE MODE (Live RAG App / Query Path):
+#   - Embedder: ONNXEmbedder (BAAI/bge-small-en-v1.5) via FastEmbed.
+#   - Purpose: Real-time query vectorization in the live application (FastAPI /ask).
+#     Runs in-process with zero external server dependencies and sub-10ms latency.
+#   - Vector Dimension: 384.
+#
+# CRITICAL NOTE FOR DEVELOPERS & AI AGENTS:
+#   This file is OFFLINE ONLY and intentionally uses Ollama. Do NOT modify the
+#   online app query embedder to Ollama. The online app relies on ONNXEmbedder
+#   for instant, serverless retrieval. Both paths use 384-d vector spaces.
+# ---------------------------------------------------------------------------
+
+VECTOR_DIMENSION = 384
+DEFAULT_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+DEFAULT_OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:latest")
 
 
 def get_qdrant_client(
@@ -74,14 +78,105 @@ def get_qdrant_client(
         return QdrantClient(path=str(path))
 
 
+# ---------------------------------------------------------------------------
+# OFFLINE-ONLY embedder. Uses official `ollama` SDK to connect to local Ollama
+# and produces 384-dimensional dense vectors for Qdrant collection storage.
+#
+# The ollama `embed` API natively supports:
+#   - Batch input (list of texts in a single call)
+#   - `truncate=True` (auto-truncates long texts to model context length)
+#   - `dimensions=384` (server-side Matryoshka dimension reduction)
+#
+# NOTE: `dimensions` MUST actually be passed on every `embed()` call, or the
+# model's native output size (which for most embedding models is NOT 384)
+# will be returned instead, causing a vector-size mismatch against the
+# Qdrant collection (created with size=384) and upsert/query failures.
+# ---------------------------------------------------------------------------
+class OllamaEmbedder:
+    """Offline-mode embedder backed by the official Ollama Python library.
+
+    Generates 384-dimensional dense vectors for document chunks during offline ingestion.
+    (Online app queries are vectorized using ONNXEmbedder).
+    """
+
+    def __init__(
+        self,
+        model_name: str = DEFAULT_OLLAMA_EMBED_MODEL,
+        base_url: str = DEFAULT_OLLAMA_BASE_URL,
+        dimension: int = VECTOR_DIMENSION,
+    ):
+        self.model_name = model_name
+        self.dimension = dimension
+        self.client = ollama.Client(host=base_url)
+
+        # Sanity-check that Ollama server is reachable before starting ingestion.
+        try:
+            self.client.list()
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not reach Ollama server at '{base_url}'. "
+                f"Is 'ollama serve' running? Original error: {e}"
+            ) from e
+
+        # Probe to verify the model works and confirm output dimension.
+        probe = self.client.embed(
+            model=self.model_name,
+            input="probe",
+            truncate=True,
+            dimensions=self.dimension,
+        )
+        probe_dim = len(probe.embeddings[0])
+        print(
+            f"[OllamaEmbedder] Model '{self.model_name}' at {base_url} "
+            f"(requested dim={self.dimension}, actual dim={probe_dim})"
+        )
+        if probe_dim != self.dimension:
+            raise RuntimeError(
+                f"Model '{self.model_name}' returned {probe_dim}-d vectors even after "
+                f"requesting dimensions={self.dimension}. This model may not support "
+                f"Matryoshka dimension truncation. Either pick a model that does, or "
+                f"set VECTOR_DIMENSION to {probe_dim} and recreate the collection."
+            )
+
+    def embed_documents(self, texts: List[str], batch_size: int = 128) -> List[List[float]]:
+        """Embeds a list of texts using Ollama's native batch embed API.
+
+        NOTE: callers that already chunk their input into batches of
+        `batch_size` before calling this method should NOT re-batch again
+        here (that would just add a redundant inner progress bar). This
+        method still batches internally so it's also safe to call directly
+        with a large, un-batched list of texts.
+        """
+        all_vectors: List[List[float]] = []
+        for i in tqdm(range(0, len(texts))):
+            resp = self.client.embed(
+                model=self.model_name,
+                input=texts[i],
+                truncate=True,
+                dimensions=self.dimension,
+            )
+            all_vectors.extend([list(v) for v in resp.embeddings])
+        return all_vectors
+
+    def embed_query(self, text: str) -> List[float]:
+        """Embeds a single query string."""
+        resp = self.client.embed(
+            model=self.model_name,
+            input=text,
+            truncate=True,
+            dimensions=self.dimension,
+        )
+        return list(resp.embeddings[0])
+
+
 def setup_collection(
     client: QdrantClient,
     collection_name: str = DEFAULT_COLLECTION_NAME,
-    vector_dim: int = 384,
+    vector_dim: int = VECTOR_DIMENSION,
     recreate: bool = False,
 ):
     """
-    Creates or recreates the Qdrant collection with vector configuration
+    Creates or recreates the Qdrant collection with 384-dimensional vector configuration
     and payload indices for fast filtering and BM25 full-text search.
     """
     collections = [c.name for c in client.get_collections().collections]
@@ -103,7 +198,7 @@ def setup_collection(
         ),
     )
 
-    # 1. Full-text index on content (for BM25 keyword search in Phase 4)
+    # 1. Full-text index on content (for BM25 keyword search)
     print("Creating full-text payload index on 'content'...")
     client.create_payload_index(
         collection_name=collection_name,
@@ -140,6 +235,7 @@ def load_chunks(chunks_path: Union[str, Path] = "src/data/processed/chunks.json"
         else:
             print(f"Chunks file not found at '{p}'. Ingesting raw docs...")
             from src.ingestion.chunker import chunk, load_docs
+
             docs = load_docs()
             chunk_objs = chunk(docs)
             chunks_data = [c.model_dump() if hasattr(c, "model_dump") else c.dict() for c in chunk_objs]
@@ -153,6 +249,22 @@ def load_chunks(chunks_path: Union[str, Path] = "src/data/processed/chunks.json"
     return chunks
 
 
+def _point_id_for_chunk(chunk_data: Dict[str, Any]) -> str:
+    """Derives a deterministic point UUID for a chunk.
+
+    Falls back to hashing the chunk's content (plus file_path, if present)
+    when `chunk_id` is missing, so that chunks without an explicit ID don't
+    all collide into the same UUID and silently overwrite each other.
+    """
+    chunk_id = chunk_data.get("chunk_id")
+    if chunk_id:
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, str(chunk_id)))
+
+    fallback_key = f"{chunk_data.get('file_path', '')}::{chunk_data.get('content', '')}"
+    digest = hashlib.sha256(fallback_key.encode("utf-8")).hexdigest()
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, digest))
+
+
 def ingest_chunks_to_qdrant(
     client: Optional[QdrantClient] = None,
     chunks_path: str = "src/data/processed/chunks.json",
@@ -160,14 +272,16 @@ def ingest_chunks_to_qdrant(
     batch_size: int = 128,
     limit: Optional[int] = None,
     recreate: bool = False,
-    embedder: Optional[ONNXEmbedder] = None,
+    ollama_model: str = DEFAULT_OLLAMA_EMBED_MODEL,
+    ollama_url: str = DEFAULT_OLLAMA_BASE_URL,
+    embedder: Optional[OllamaEmbedder] = None,
 ):
     """
-    Main ingestion function:
+    Main offline ingestion function:
     1. Connects to Qdrant (Cloud or Embedded).
-    2. Initializes ONNXEmbedder.
-    3. Sets up collection and indices.
-    4. Encodes chunks and upserts points in batches.
+    2. Initializes OllamaEmbedder (Offline mode).
+    3. Sets up collection (384-d) and indices.
+    4. Encodes chunks into 384-d vectors and upserts points in batches.
     5. Verifies indexing.
     """
     start_time = time.time()
@@ -176,14 +290,13 @@ def ingest_chunks_to_qdrant(
         client = get_qdrant_client()
 
     if embedder is None:
-        print("Initializing ONNX Embedder (BAAI/bge-small-en-v1.5)...")
-        embedder = ONNXEmbedder()
+        embedder = OllamaEmbedder(model_name=ollama_model, base_url=ollama_url)
 
-    # Setup collection
+    # Setup collection (vector dimension fixed at 384)
     setup_collection(
         client=client,
         collection_name=collection_name,
-        vector_dim=embedder.dimension,
+        vector_dim=VECTOR_DIMENSION,
         recreate=recreate,
     )
 
@@ -202,14 +315,15 @@ def ingest_chunks_to_qdrant(
         batch_chunks = chunks[i : i + batch_size]
         texts = [c.get("content", "") for c in batch_chunks]
 
-        # 1. Generate dense ONNX embeddings
-        vectors = embedder.embed_documents(texts, batch_size=batch_size)
+        # 1. Generate dense Ollama embeddings (384-d).
+        # batch_chunks is already sized to `batch_size`, so embed it in one
+        # shot instead of re-batching internally.
+        vectors = embedder.embed_documents(texts, batch_size=len(texts))
 
         # 2. Build PointStruct list with deterministic UUIDs
         points = []
         for chunk_data, vector in zip(batch_chunks, vectors):
-            chunk_id = chunk_data.get("chunk_id", "")
-            point_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, chunk_id))
+            point_uuid = _point_id_for_chunk(chunk_data)
 
             point = qmodels.PointStruct(
                 id=point_uuid,
@@ -230,9 +344,10 @@ def ingest_chunks_to_qdrant(
     print(" Qdrant Ingestion Complete!")
     print("=" * 60)
     print(f"Collection:            {collection_name}")
+    print(f"Vector Dimension:      {VECTOR_DIMENSION}")
     print(f"Total Chunks Ingested: {len(chunks)}")
     print(f"Elapsed Time:          {elapsed:.2f}s")
-    if len(chunks) > 0:
+    if len(chunks) > 0 and elapsed > 0:
         print(f"Throughput:            {len(chunks) / elapsed:.1f} chunks/sec")
     print("=" * 60)
 
@@ -240,7 +355,7 @@ def ingest_chunks_to_qdrant(
     verify_indexing(client, collection_name, embedder)
 
 
-def verify_indexing(client: QdrantClient, collection_name: str, embedder: ONNXEmbedder):
+def verify_indexing(client: QdrantClient, collection_name: str, embedder: OllamaEmbedder):
     """Runs verification tests on the populated collection."""
     print("\nRunning Verification Test...")
     try:
@@ -269,7 +384,7 @@ def verify_indexing(client: QdrantClient, collection_name: str, embedder: ONNXEm
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Ingest documentation chunks into Qdrant Cloud or Embedded storage using ONNX embeddings."
+        description="Ingest documentation chunks into Qdrant Cloud or Embedded storage using Ollama embeddings (Offline Mode, 384-d)."
     )
     parser.add_argument(
         "--chunks-path",
@@ -287,13 +402,13 @@ def parse_args():
         "--qdrant-url",
         type=str,
         default=DEFAULT_QDRANT_URL,
-        help="Qdrant server / cloud URL (defaults to env var Qdrant_API_URL).",
+        help="Qdrant server / cloud URL (defaults to env var QDRANT_API_URL; omit for local embedded storage).",
     )
     parser.add_argument(
         "--qdrant-api-key",
         type=str,
         default=DEFAULT_QDRANT_API_KEY,
-        help="Qdrant API key (defaults to env var Qdrant_API_KEY).",
+        help="Qdrant API key (defaults to env var QDRANT_API_KEY).",
     )
     parser.add_argument(
         "--storage-path",
@@ -305,7 +420,7 @@ def parse_args():
         "--batch-size",
         type=int,
         default=128,
-        help="Batch size for ONNX embedding & Qdrant upsert (default: 128).",
+        help="Batch size for embedding & Qdrant upsert (default: 128).",
     )
     parser.add_argument(
         "--limit",
@@ -317,6 +432,18 @@ def parse_args():
         "--recreate",
         action="store_true",
         help="Recreate the Qdrant collection if it already exists.",
+    )
+    parser.add_argument(
+        "--ollama-model",
+        type=str,
+        default=DEFAULT_OLLAMA_EMBED_MODEL,
+        help=f"Ollama embedding model for offline ingestion (default: {DEFAULT_OLLAMA_EMBED_MODEL}).",
+    )
+    parser.add_argument(
+        "--ollama-url",
+        type=str,
+        default=DEFAULT_OLLAMA_BASE_URL,
+        help=f"Ollama server URL (default: {DEFAULT_OLLAMA_BASE_URL}).",
     )
     return parser.parse_args()
 
@@ -335,6 +462,8 @@ def main():
         batch_size=args.batch_size,
         limit=args.limit,
         recreate=args.recreate,
+        ollama_model=args.ollama_model,
+        ollama_url=args.ollama_url,
     )
 
 

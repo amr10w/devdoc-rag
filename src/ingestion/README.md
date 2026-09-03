@@ -1,17 +1,28 @@
-# Ingestion & Qdrant Storage Pipeline
+# Ingestion & Qdrant Storage Pipeline (Offline Mode)
 
-This module handles the end-to-end ingestion pipeline:
+This module handles the end-to-end offline ingestion pipeline:
 1. **Document Loading & Structural Chunking** ([`chunker.py`](chunker.py)) from markdown files in `src/data/raw`.
-2. **Dense Vector Generation** ([`src.embeddings`](../embeddings/README.md)) using lightweight ONNX embeddings (`BAAI/bge-small-en-v1.5`, 384-d).
+2. **Dense Vector Generation** using **Ollama** (`qwen3-embedding:latest` or `bge-small` / `all-minilm`, **384-d**).
 3. **Qdrant Storage & Indexing** ([`ingest_qdrant.py`](ingest_qdrant.py)) into Qdrant Cloud or local embedded storage.
+
+> [!NOTE]
+> **Embedding Architecture**:
+> - **Offline Mode (This Pipeline)**: Uses local **Ollama** embeddings via the official `ollama` Python library (`OllamaEmbedder`), configured for **384-dimensional vectors**.
+> - **Online Mode (Live App / Query Path)**: Uses **ONNX** (`ONNXEmbedder`, `BAAI/bge-small-en-v1.5`, 384-d) via FastEmbed for fast, serverless query vectorization at runtime.
+> - Both modes share a **384-dimensional vector space** stored in Qdrant with Cosine distance.
 
 ---
 
 ## 1. Quick Start & Execution
 
-### Full Ingestion to Qdrant Cloud
+### Prerequisites
+Start the local Ollama server before running ingestion:
 ```bash
-conda activate llm-zoomcamp
+ollama serve
+```
+
+### Full Ingestion to Qdrant
+```bash
 devdoc-ingest --recreate
 ```
 *(Or via standard Python module syntax: `python -m src.ingestion.ingest_qdrant --recreate`)*
@@ -32,15 +43,17 @@ The pipeline automatically loads credentials from `src/.env` or root `.env`:
 | `Qdrant_API_URL` / `QDRANT_API_URL` | Qdrant Cloud Cluster URL |
 | `Qdrant_API_KEY` / `QDRANT_API_KEY` | Qdrant Cloud API Key |
 | `QDRANT_STORAGE_PATH` | Local disk fallback directory (default: `src/data/qdrant_storage`) |
+| `OLLAMA_BASE_URL` | Ollama server URL (default: `http://localhost:11434`) |
+| `OLLAMA_EMBED_MODEL` | Ollama embedding model (default: `qwen3-embedding:latest`) |
 
 ---
 
-## 3. Qdrant Collection Schema (`devdoc_chunks`)
+## 3. Qdrant Collection Schema (`devdoc`)
 
 - **Vectors**:
   - `size`: 384 (Cosine distance)
 - **Payload Indices**:
-  - `content`: Full-text index (`TokenizerType.WORD`, lowercase) for BM25 keyword search in Phase 4.
+  - `content`: Full-text index (`TokenizerType.WORD`, lowercase) for BM25 keyword search.
   - `source_lib`: Keyword index (e.g. `fastapi`, `docker`, `pydantic`).
   - `file_path`: Keyword index.
 
@@ -51,7 +64,10 @@ The pipeline automatically loads credentials from `src/.env` or root `.env`:
 | Argument | Default | Description |
 | :--- | :--- | :--- |
 | `--chunks-path` | `src/data/processed/chunks.json` | Processed chunks JSON file |
-| `--collection-name` | `devdoc_chunks` | Qdrant collection name |
+| `--collection-name` | `devdoc` | Qdrant collection name |
 | `--batch-size` | `128` | Batch size for embedding and upload |
 | `--limit` | `None` | Optional limit for quick testing |
 | `--recreate` | `False` | Force delete and recreate collection |
+| `--ollama-model` | `qwen3-embedding:latest` | Ollama model for offline embeddings |
+| `--ollama-url` | `http://localhost:11434` | Ollama base URL |
+| `--storage-path` | `src/data/qdrant_storage` | Local disk fallback storage path |
