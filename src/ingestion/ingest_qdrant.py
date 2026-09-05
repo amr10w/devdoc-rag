@@ -271,6 +271,7 @@ def ingest_chunks_to_qdrant(
     collection_name: str = DEFAULT_COLLECTION_NAME,
     batch_size: int = 128,
     limit: Optional[int] = None,
+    offset: int = 0,
     recreate: bool = False,
     ollama_model: str = DEFAULT_OLLAMA_EMBED_MODEL,
     ollama_url: str = DEFAULT_OLLAMA_BASE_URL,
@@ -302,16 +303,31 @@ def ingest_chunks_to_qdrant(
 
     # Load chunks
     chunks = load_chunks(chunks_path)
+    total_loaded = len(chunks)
+    if offset and offset > 0:
+        print(f"Skipping first {offset} chunks (resuming from chunk index {offset}/{total_loaded}).")
+        chunks = chunks[offset:]
+
     if limit and limit > 0:
-        print(f"Limiting ingestion to first {limit} chunks (out of {len(chunks)} total).")
+        print(f"Limiting ingestion to first {limit} chunks (out of {len(chunks)} remaining).")
         chunks = chunks[:limit]
     else:
-        print(f"Loaded {len(chunks)} chunks for ingestion.")
+        print(f"Loaded {len(chunks)} chunks to ingest.")
 
     total_batches = (len(chunks) + batch_size - 1) // batch_size
-    print(f"Ingesting into Qdrant collection '{collection_name}' in {total_batches} batches...")
+    initial_batch = (offset // batch_size) if offset > 0 else 0
+    overall_total_batches = initial_batch + total_batches
+    print(
+        f"Ingesting into Qdrant collection '{collection_name}' in {total_batches} batches "
+        f"(batches {initial_batch + 1} to {overall_total_batches})..."
+    )
 
-    for i in tqdm(range(0, len(chunks), batch_size), total=total_batches, desc="Ingesting to Qdrant"):
+    for i in tqdm(
+        range(0, len(chunks), batch_size),
+        total=overall_total_batches,
+        initial=initial_batch,
+        desc="Ingesting to Qdrant",
+    ):
         batch_chunks = chunks[i : i + batch_size]
         texts = [c.get("content", "") for c in batch_chunks]
 
@@ -345,7 +361,8 @@ def ingest_chunks_to_qdrant(
     print("=" * 60)
     print(f"Collection:            {collection_name}")
     print(f"Vector Dimension:      {VECTOR_DIMENSION}")
-    print(f"Total Chunks Ingested: {len(chunks)}")
+    chunks_info = f"{len(chunks)}" if offset == 0 else f"{len(chunks)} (resumed from chunk {offset})"
+    print(f"Total Chunks Ingested: {chunks_info}")
     print(f"Elapsed Time:          {elapsed:.2f}s")
     if len(chunks) > 0 and elapsed > 0:
         print(f"Throughput:            {len(chunks) / elapsed:.1f} chunks/sec")
@@ -423,6 +440,18 @@ def parse_args():
         help="Batch size for embedding & Qdrant upsert (default: 128).",
     )
     parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Number of chunks to skip before starting ingestion (default: 0).",
+    )
+    parser.add_argument(
+        "--start-batch",
+        type=int,
+        default=None,
+        help="Batch index to resume from (e.g. 104). Automatically calculates offset = start_batch * batch_size.",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -450,6 +479,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+    offset = args.offset
+    if args.start_batch is not None:
+        offset = args.start_batch * args.batch_size
+
     client = get_qdrant_client(
         url=args.qdrant_url,
         api_key=args.qdrant_api_key,
@@ -461,6 +494,7 @@ def main():
         collection_name=args.collection_name,
         batch_size=args.batch_size,
         limit=args.limit,
+        offset=offset,
         recreate=args.recreate,
         ollama_model=args.ollama_model,
         ollama_url=args.ollama_url,

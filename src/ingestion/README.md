@@ -66,6 +66,8 @@ The pipeline automatically loads credentials from `src/.env` or root `.env`:
 | `--chunks-path` | `src/data/processed/chunks.json` | Processed chunks JSON file |
 | `--collection-name` | `devdoc` | Qdrant collection name |
 | `--batch-size` | `128` | Batch size for embedding and upload |
+| `--start-batch` | `None` | Batch number to resume from (e.g. `104` to skip the first 104 batches) |
+| `--offset` | `0` | Number of chunks to skip before starting ingestion |
 | `--limit` | `None` | Optional limit for quick testing |
 | `--recreate` | `False` | Force delete and recreate collection |
 | `--ollama-model` | `qwen3-embedding:latest` | Ollama model for offline embeddings |
