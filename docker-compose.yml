@@ -1,0 +1,43 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devdoc-rag-api
+    command: ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_API_URL=${OLLAMA_API_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-glm-5.2:cloud}
+      - QDRANT_API_URL=${QDRANT_API_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - RAG_LOGS_DB=/app/src/data/rag_logs.db
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-onnx}
+    volumes:
+      - ./src/data:/app/src/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devdoc-rag-dashboard
+    command: ["streamlit", "run", "src/app/dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
