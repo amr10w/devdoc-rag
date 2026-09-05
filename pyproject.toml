@@ -19,11 +19,17 @@ dependencies = [
     "qdrant-client>=1.19.0",
     "requests>=2.34.2",
     "tqdm>=4.70.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "streamlit>=1.38.0",
+    "plotly>=5.24.0",
 ]
 
 [project.scripts]
 devdoc-ground-truth = "src.evaluation.generate_ground_truth:main"
 devdoc-ingest = "src.ingestion.ingest_qdrant:main"
+devdoc-eval-retrieval = "src.evaluation.evaluate_retrieval:main"
+devdoc-eval-llm = "src.evaluation.evaluate_llm:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
