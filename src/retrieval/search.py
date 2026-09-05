@@ -7,12 +7,35 @@ import re
 from collections import defaultdict
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 from qdrant_client import QdrantClient, models
 
-from src.embeddings.embedder import ONNXEmbedder
+from src.embeddings.embedder import ONNXEmbedder, get_embedder
 
-load_dotenv()
+load_dotenv(find_dotenv())
+
+STOP_WORDS = {
+    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
+    "any", "are", "aren't", "as", "at", "be", "because", "been", "before", "being",
+    "below", "between", "both", "but", "by", "can't", "cannot", "could", "couldn't",
+    "did", "didn't", "do", "does", "doesn't", "doing", "don't", "down", "during",
+    "each", "few", "for", "from", "further", "had", "hadn't", "has", "hasn't",
+    "have", "haven't", "having", "he", "he'd", "he'll", "he's", "her", "here",
+    "here's", "hers", "herself", "him", "himself", "his", "how", "how's", "i",
+    "i'd", "i'll", "i'm", "i've", "if", "in", "into", "is", "isn't", "it", "it's",
+    "its", "itself", "let's", "me", "more", "most", "mustn't", "my", "myself",
+    "no", "nor", "not", "of", "off", "on", "once", "only", "or", "other", "ought",
+    "our", "ours", "ourselves", "out", "over", "own", "same", "shan't", "she",
+    "she'd", "she'll", "she's", "should", "shouldn't", "so", "some", "such",
+    "than", "that", "that's", "the", "their", "theirs", "them", "themselves",
+    "then", "there", "there's", "these", "they", "they'd", "they'll", "they're",
+    "they've", "this", "those", "through", "to", "too", "under", "until", "up",
+    "very", "was", "wasn't", "we", "we'd", "we'll", "we're", "we've", "were",
+    "weren't", "what", "what's", "when", "when's", "where", "where's", "which",
+    "while", "who", "who's", "whom", "why", "why's", "with", "won't", "would",
+    "wouldn't", "you", "you'd", "you'll", "you're", "you've", "your", "yours",
+    "yourself", "yourselves"
+}
 
 
 class DevDocSearcher:
@@ -21,11 +44,11 @@ class DevDocSearcher:
     def __init__(
         self,
         collection_name: str = "devdoc",
-        embedder: ONNXEmbedder | None = None,
+        embedder: Any | None = None,
         client: QdrantClient | None = None,
     ) -> None:
         self.collection_name = collection_name
-        self.embedder = embedder or ONNXEmbedder()
+        self.embedder = embedder or get_embedder()
 
         if client is not None:
             self.client = client
@@ -95,7 +118,9 @@ class DevDocSearcher:
         source_lib: str | None = None,
     ) -> list[dict[str, Any]]:
         """Lexical full-text search leveraging Qdrant payload text index and token matching."""
-        tokens = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9_\-]{2,}\b", query)]
+        raw_tokens = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9_\-]{2,}\b", query)]
+        meaningful_tokens = [w for w in raw_tokens if w not in STOP_WORDS]
+        tokens = meaningful_tokens if meaningful_tokens else raw_tokens
         if not tokens:
             return []
 
