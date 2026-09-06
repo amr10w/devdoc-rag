@@ -3,8 +3,17 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Qdrant](https://img.shields.io/badge/Qdrant-Cloud%20%7C%20Local-red.svg?logo=qdrant&logoColor=white)](https://qdrant.tech)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black.svg?logo=ollama&logoColor=white)](https://ollama.com)
-[![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B.svg?logo=streamlit&logoColor=white)](https://streamlit.io)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app/)
+[![API Docs](https://img.shields.io/badge/FastAPI-Live%20API%20%26%20Docs-009688.svg?logo=fastapi&logoColor=white)](https://devdoc-rag.fastapicloud.dev/docs)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717.svg?logo=github&logoColor=white)](https://github.com/amr10w/devdoc-rag)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
+
+> ### 🚀 Try It Live in Production!
+> DevDoc RAG is deployed and fully operational. You can test it directly in your browser:
+> - 🌐 **Interactive Web App & Monitoring Dashboard**: [devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app](https://devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app/)
+> - ⚡ **FastAPI Production Backend**: [devdoc-rag.fastapicloud.dev](https://devdoc-rag.fastapicloud.dev)
+> - 📖 **Interactive Swagger UI (API Docs)**: [devdoc-rag.fastapicloud.dev/docs](https://devdoc-rag.fastapicloud.dev/docs)
+> - 💻 **GitHub Repository (`main`)**: [github.com/amr10w/devdoc-rag/tree/main](https://github.com/amr10w/devdoc-rag/tree/main)
 
 **DevDoc RAG** is an end-to-end Retrieval-Augmented Generation (RAG) system engineered for developers navigating complex technical documentation across **FastAPI, Docker, PyTorch, Pydantic, Qdrant, PostgreSQL, and Transformers**.
 
@@ -13,6 +22,7 @@ The system combines **Hybrid Search (Dense Vector + BM25 Lexical Keyword Search 
 ---
 
 ## Table of Contents
+- [🚀 Live Demo & Production Deployment](#-production-cloud-deployment--developer-trial)
 - [1. Problem Description](#1-problem-description)
 - [2. Architecture & System Flow](#2-architecture--system-flow)
 - [3. Ingestion Pipeline](#3-ingestion-pipeline)
@@ -24,6 +34,7 @@ The system combines **Hybrid Search (Dense Vector + BM25 Lexical Keyword Search 
 - [9. Monitoring Dashboard & User Feedback (5 Figures)](#9-monitoring-dashboard--user-feedback-5-figures)
 - [10. Containerization (Docker & Docker Compose)](#10-containerization-docker--docker-compose)
 - [11. Quick Start & Reproducibility Guide](#11-quick-start--reproducibility-guide)
+- [12. Production Cloud Deployment & Developer Trial](#-production-cloud-deployment--developer-trial)
 
 ---
 
@@ -357,80 +368,92 @@ Open `http://localhost:8000/docs` for API documentation and `http://localhost:85
 
 ---
 
-## ☁️ Cloud Deployment
+## 12. ☁️ Production Cloud Deployment & Developer Trial
 
-### Option A: Deploy FastAPI Backend to Render.com (Free Tier)
+DevDoc RAG is deployed and operational in production using a fully decoupled, cloud-native architecture:
+- **Frontend App**: Deployed on **Streamlit Community Cloud** with interactive chat, library filtering, citations, and 5 real-time telemetry charts.
+- **Backend API**: Deployed on **FastAPI Cloud** (`fastapicloud.dev`) serving `/ask`, `/feedback`, and `/metrics` with automated Swagger UI docs and startup database auto-seeding.
+- **Vector Knowledge Base**: Hosted on **Qdrant Cloud** cluster indexing 384-dimensional dense vectors and lexical text payloads.
+- **Source Code**: Fully open-source on [GitHub (`main` branch)](https://github.com/amr10w/devdoc-rag/tree/main).
 
-**Step 1: Push your code to GitHub**
+---
+
+### 🎮 If You Want to Try It (Live Developer Trial)
+
+You can explore and test the live production system immediately without any local setup:
+
+#### 1. Interactive Web Application & Analytics Dashboard (Recommended)
+👉 **[https://devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app/](https://devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app/)**
+
+* **Chat Assistant Tab**:
+  - Ask technical questions across **FastAPI, Docker, PyTorch, Pydantic, Qdrant, PostgreSQL, SQLAlchemy, and Transformers**.
+  - Select your retrieval strategy: **Hybrid RRF** (Default Winner), **Dense Vector**, or **Lexical Keyword**.
+  - Optionally filter to a specific documentation library.
+  - Review syntax-highlighted code blocks, section links, and original documentation citations.
+  - Submit 👍 or 👎 user feedback.
+* **Analytics & Telemetry Tab**:
+  - View real-time telemetry powered by 5 analytical figures (Daily/Hourly Query Volume, Feedback Sentiment Breakdown, P50/P90/P99 Latency Distribution, Top Queried Documentation Libraries, and Response Character Count Boxplot).
+
+#### 2. Interactive Swagger UI (OpenAPI Documentation)
+👉 **[https://devdoc-rag.fastapicloud.dev/docs](https://devdoc-rag.fastapicloud.dev/docs)**
+
+Explore and test all REST endpoints directly in your browser with interactive schemas.
+
+#### 3. Test the Live API via cURL / Terminal
+
+**Ask a Technical Question (`POST /ask`):**
 ```bash
-git add -A
-git commit -m "Pre-deployment: UI overhaul, bug fixes, requirements.txt"
-git push origin main
+curl -X POST "https://devdoc-rag.fastapicloud.dev/ask" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "query": "How do I inspect container network details in Docker?",
+       "source_lib": "docker",
+       "retrieval_method": "hybrid_rrf",
+       "top_k": 4
+     }'
 ```
 
-**Step 2: Create a Render Web Service**
-1. Go to [render.com](https://render.com) → **New** → **Web Service**
-2. Connect your GitHub repo (`devdoc-rag`)
-3. Configure:
-   - **Name**: `devdoc-rag-api`
-   - **Runtime**: `Python 3`
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `uvicorn src.app.main:app --host 0.0.0.0 --port $PORT`
-   - **Instance Type**: Free
+**Check System Health (`GET /health`):**
+```bash
+curl -s "https://devdoc-rag.fastapicloud.dev/health"
+```
 
-**Step 3: Set Environment Variables on Render**
+**Get Live Telemetry Summary (`GET /metrics/summary`):**
+```bash
+curl -s "https://devdoc-rag.fastapicloud.dev/metrics/summary"
+```
 
-Go to **Environment** tab and add:
-
-| Key | Value |
-|---|---|
-| `OLLAMA_API_URL` | `https://ollama.com` |
-| `OLLAMA_API_KEY` | `your_ollama_api_key` |
-| `OLLAMA_MODEL` | `glm-5.2:cloud` |
-| `QDRANT_API_URL` | `https://your-qdrant-cluster.cloud.qdrant.io` |
-| `QDRANT_API_KEY` | `your_qdrant_jwt_key` |
-| `EMBEDDING_PROVIDER` | `onnx` |
-| `RAG_LOGS_DB` | `rag_logs.db` |
-
-**Step 4: Deploy & verify**
-- Render auto-deploys on push. Wait for build to complete.
-- Test: `curl https://devdoc-rag-api.onrender.com/health`
-- Swagger UI: `https://devdoc-rag-api.onrender.com/docs`
-
-> ⚠️ **Note**: Free Render instances spin down after 15 min of inactivity. First request after sleep takes ~30s.
+**Submit Feedback (`POST /feedback`):**
+```bash
+curl -X POST "https://devdoc-rag.fastapicloud.dev/feedback" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "log_id": "<LOG_ID_FROM_ASK_RESPONSE>",
+       "rating": 1,
+       "comment": "Accurate syntax and helpful citation!"
+     }'
+```
 
 ---
 
-### Option B: Deploy Streamlit Dashboard to Streamlit Cloud (Free)
+### 🏗️ Production Architecture & Configuration Details
 
-**Step 1: Ensure `requirements.txt` exists at repo root** (already created ✅)
-
-**Step 2: Create Streamlit Cloud App**
-1. Go to [share.streamlit.io](https://share.streamlit.io)
-2. Click **New app** → Connect your GitHub repo
-3. Configure:
-   - **Repository**: `your-username/devdoc-rag`
-   - **Branch**: `main`
-   - **Main file path**: `src/app/dashboard.py`
-
-**Step 3: Set Secrets on Streamlit Cloud**
-
-Go to **Settings** → **Secrets** and add (TOML format):
-```toml
-API_BASE_URL = "https://devdoc-rag-api.onrender.com"
-```
-> Replace with your actual Render URL from Step A.
-
-**Step 4: Deploy**
-- Streamlit Cloud auto-installs from `requirements.txt` and launches `dashboard.py`
-- Your dashboard is live at: `https://your-username-devdoc-rag-xxxx.streamlit.app`
+| Service | Host / Platform | Live Endpoint / Repository | Configuration Highlights |
+| :--- | :--- | :--- | :--- |
+| **Frontend UI** | Streamlit Community Cloud | [devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app](https://devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app/) | Connects exclusively via HTTP REST to FastAPI backend (`API_BASE_URL`) |
+| **Backend API** | FastAPI Cloud | [devdoc-rag.fastapicloud.dev](https://devdoc-rag.fastapicloud.dev) | Auto-provisions HTTPS, auto-seeds 35 mock logs if empty, zero database lock contention |
+| **API Docs** | FastAPI Cloud Swagger | [devdoc-rag.fastapicloud.dev/docs](https://devdoc-rag.fastapicloud.dev/docs) | Interactive OpenAPI 3.1 documentation |
+| **Vector DB** | Qdrant Cloud | Managed AWS Cluster | 384-dimensional collection (`devdoc`), Cosine distance, payload full-text indexing |
+| **Repository** | GitHub | [github.com/amr10w/devdoc-rag/tree/main](https://github.com/amr10w/devdoc-rag/tree/main) | Reproducible packaging via `pyproject.toml`, `uv.lock`, and `requirements.txt` |
 
 ---
 
-### Post-Deployment Verification Checklist
-- [ ] FastAPI `/health` returns `{"status": "healthy"}` or `{"status": "degraded"}`
-- [ ] Swagger UI is accessible at `/docs`
-- [ ] Streamlit dashboard shows "Backend Online" in sidebar
-- [ ] Monitoring tab shows 35 seeded mock records (auto-created on first startup)
-- [ ] Chat tab accepts questions and returns LLM answers
-- [ ] Feedback buttons (👍/👎) record correctly
+### ✅ Live Production Verification Checklist
+- [x] **FastAPI Backend Live**: [https://devdoc-rag.fastapicloud.dev/health](https://devdoc-rag.fastapicloud.dev/health) returns `status: healthy`
+- [x] **Swagger UI Accessible**: [https://devdoc-rag.fastapicloud.dev/docs](https://devdoc-rag.fastapicloud.dev/docs)
+- [x] **Streamlit Web App Live**: [https://devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app/](https://devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app/)
+- [x] **Telemetry & 5 Dashboard Charts**: Initialized with 35 pre-seeded interactions; renders immediately on launch
+- [x] **RAG Retrieval & Generation**: Verified end-to-end with Hybrid RRF, citations, and source filtering
+- [x] **User Feedback Loop**: 👍 / 👎 recorded via `/feedback` and updated in SQLite database
+- [x] **GitHub Repository**: [https://github.com/amr10w/devdoc-rag/tree/main](https://github.com/amr10w/devdoc-rag/tree/main)
+
