@@ -71,3 +71,7 @@ Thumbs.db
 *.log
 logs/
 data/
+
+# Deployment guide (local notes)
+deploy.md
+depoly.md
