@@ -34,3 +34,7 @@ devdoc-eval-llm = "src.evaluation.evaluate_llm:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.fastapi]
+entrypoint = "src.app.main:app"
+

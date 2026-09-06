@@ -22,6 +22,10 @@ DEFAULT_ONNX_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:latest")
 DEFAULT_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
+DEFAULT_VECTOR_DIMENSION = int(
+    os.getenv("VECTOR_DIMENSION",384)
+)
+
 MODEL_DIMENSIONS = {
     "BAAI/bge-small-en-v1.5": 384,
     "sentence-transformers/all-MiniLM-L6-v2": 384,
@@ -35,21 +39,21 @@ MODEL_DIMENSIONS = {
 class OllamaEmbedder:
     """
     Ollama-powered embedding engine.
-    Matches the 384-d vector embeddings created during Qdrant ingestion.
+    Produces vector embeddings with dimensions configurable via environment variable or argument.
     """
 
     def __init__(
         self,
         model_name: str = DEFAULT_OLLAMA_EMBED_MODEL,
         base_url: str = DEFAULT_OLLAMA_BASE_URL,
-        dimensions: int = 384,
+        dimensions: int | None = None,
     ) -> None:
         self.model_name = os.getenv("OLLAMA_EMBED_MODEL", model_name)
         raw_url = os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_API_URL") or base_url
         if "ollama.com" in raw_url:
             raw_url = "http://localhost:11434"
         self.base_url = raw_url.rstrip("/")
-        self.dimensions = dimensions
+        self.dimensions = dimensions if dimensions is not None else DEFAULT_VECTOR_DIMENSION
         self.client = ollama.Client(host=self.base_url)
         self._fallback_embedder: ONNXEmbedder | None = None
 
@@ -154,8 +158,8 @@ class ONNXEmbedder:
 
 def get_embedder(provider: str | None = None) -> Union[ONNXEmbedder, OllamaEmbedder]:
     """
-    Factory helper returning appropriate embedder for online query mode.
-    Defaults to ONNXEmbedder (FastEmbed BAAI/bge-small-en-v1.5) for fast, PyTorch-free in-process embedding.
+    Factory helper returning appropriate embedder based on provider or EMBEDDING_PROVIDER env var.
+    Defaults to ONNXEmbedder (FastEmbed BAAI/bge-small-en-v1.5) for fast in-process embedding.
     """
     prov = provider or os.getenv("EMBEDDING_PROVIDER", "onnx")
     if prov.lower() == "ollama":

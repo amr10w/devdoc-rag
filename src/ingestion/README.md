@@ -1,15 +1,14 @@
-# Ingestion & Qdrant Storage Pipeline (Offline Mode)
+# Ingestion & Qdrant Storage Pipeline
 
-This module handles the end-to-end offline ingestion pipeline:
+This module handles the end-to-end ingestion pipeline:
 1. **Document Loading & Structural Chunking** ([`chunker.py`](chunker.py)) from markdown files in `src/data/raw`.
-2. **Dense Vector Generation** using **Ollama** (`qwen3-embedding:latest` or `bge-small` / `all-minilm`, **384-d**).
+2. **Dense Vector Generation** using the configured provider (`EMBEDDING_PROVIDER`: `onnx` / FastEmbed or `ollama`).
 3. **Qdrant Storage & Indexing** ([`ingest_qdrant.py`](ingest_qdrant.py)) into Qdrant Cloud or local embedded storage.
 
 > [!NOTE]
 > **Embedding Architecture**:
-> - **Offline Mode (This Pipeline)**: Uses local **Ollama** embeddings via the official `ollama` Python library (`OllamaEmbedder`), configured for **384-dimensional vectors**.
-> - **Online Mode (Live App / Query Path)**: Uses **ONNX** (`ONNXEmbedder`, `BAAI/bge-small-en-v1.5`, 384-d) via FastEmbed for fast, serverless query vectorization at runtime.
-> - Both modes share a **384-dimensional vector space** stored in Qdrant with Cosine distance.
+> - Embedder is selected dynamically via `EMBEDDING_PROVIDER` env variable (`onnx` or `ollama`).
+> - Vector dimension is configurable via `VECTOR_DIMENSION` env variable (default: `384`), aligned with collection configurations in Qdrant with Cosine distance.
 
 ---
 
@@ -70,6 +69,6 @@ The pipeline automatically loads credentials from `src/.env` or root `.env`:
 | `--offset` | `0` | Number of chunks to skip before starting ingestion |
 | `--limit` | `None` | Optional limit for quick testing |
 | `--recreate` | `False` | Force delete and recreate collection |
-| `--ollama-model` | `qwen3-embedding:latest` | Ollama model for offline embeddings |
-| `--ollama-url` | `http://localhost:11434` | Ollama base URL |
+| `--embedding-provider` | `onnx` (or env) | Embedding provider (`onnx` or `ollama`) |
+| `--vector-dim` | `384` (or env) | Vector dimension for collection |
 | `--storage-path` | `src/data/qdrant_storage` | Local disk fallback storage path |
