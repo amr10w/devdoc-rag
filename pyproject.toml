@@ -23,6 +23,8 @@ dependencies = [
     "uvicorn>=0.30.0",
     "streamlit>=1.38.0",
     "plotly>=5.24.0",
+    "minsearch>=0.2.0",
+    "bm25s>=0.3.11",
 ]
 
 [project.scripts]

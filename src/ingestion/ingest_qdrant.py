@@ -29,7 +29,7 @@ load_dotenv(find_dotenv())
 DEFAULT_QDRANT_URL = os.getenv("QDRANT_API_URL", None)
 DEFAULT_QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 DEFAULT_STORAGE_PATH = os.getenv("QDRANT_STORAGE_PATH", "src/data/qdrant_storage")
-DEFAULT_COLLECTION_NAME = "devdoc_chunks"
+DEFAULT_COLLECTION_NAME = "devdoc"
 
 # Embedding and Vector Configuration
 DEFAULT_EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "onnx")

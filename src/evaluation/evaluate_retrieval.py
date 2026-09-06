@@ -2,7 +2,7 @@
 src/evaluation/evaluate_retrieval.py
 
 Benchmarks Vector, Lexical/BM25 Text, and Hybrid RRF retrieval strategies
-against the ground-truth QA dataset. Calculates Hit Rate @ k (k=1, 3, 5),
+against the ground-truth QA dataset. Calculates Hit Rate @ k (k=1, 3, 5, 10),
 Mean Reciprocal Rank (MRR), and average search latency.
 """
 
@@ -39,7 +39,7 @@ def evaluate_query(
     query: str,
     target_chunk_id: str,
     source_lib: str | None = None,
-    top_k: int = 5,
+    top_k: int = 10,
 ) -> tuple[dict[int, int], float, float, list[str]]:
     """
     Evaluates a single query against the retrieval function.
@@ -53,7 +53,7 @@ def evaluate_query(
 
     retrieved_ids = [r.get("chunk_id", "") for r in results]
 
-    hits = {1: 0, 3: 0, 5: 0}
+    hits = {1: 0, 3: 0, 5: 0, 10: 0}
     reciprocal_rank = 0.0
 
     for rank_idx, cid in enumerate(retrieved_ids):
@@ -73,6 +73,7 @@ def run_retrieval_benchmark(
     limit: int | None = None,
     filter_lib: str | None = None,
     output_path: str | None = "src/data/retrieval_evaluation_results.json",
+    debug: bool = False,
 ) -> dict[str, Any]:
     """
     Runs the comprehensive retrieval evaluation comparing:
@@ -98,6 +99,7 @@ def run_retrieval_benchmark(
     print(f"Total Test Queries:     {total_queries}")
     print(f"Library Filter:         {filter_lib or 'All Libraries'}")
     print(f"Ground Truth Dataset:   {ground_truth_path}")
+    print(f"Debug Mode:             {'ON' if debug else 'OFF'}")
     print("=" * 65 + "\n")
 
     searcher = get_searcher()
@@ -115,50 +117,74 @@ def run_retrieval_benchmark(
         hit_1_list: list[int] = []
         hit_3_list: list[int] = []
         hit_5_list: list[int] = []
+        hit_10_list: list[int] = []
         rr_list: list[float] = []
         latency_list: list[float] = []
+        miss_count = 0
+        max_debug_misses = 5  # Show details for the first N misses per method
 
         for item in tqdm(qa_pairs, desc=f"Testing {method_name}"):
             query = item["question"]
             target_cid = item["source_chunk_id"]
 
-            hits, rr, latency, _ = evaluate_query(
+            hits, rr, latency, retrieved_ids = evaluate_query(
                 search_func=search_func,
                 query=query,
                 target_chunk_id=target_cid,
-                top_k=5,
+                top_k=10,
             )
 
             hit_1_list.append(hits[1])
             hit_3_list.append(hits[3])
             hit_5_list.append(hits[5])
+            hit_10_list.append(hits[10])
             rr_list.append(rr)
             latency_list.append(latency)
+
+            # Diagnostic logging for misses
+            if debug and hits[10] == 0:
+                miss_count += 1
+                if miss_count <= max_debug_misses:
+                    print(f"\n  ❌ MISS [{method_name}] Query: \"{query[:80]}...\"")
+                    print(f"     Expected chunk_id: {target_cid}")
+                    print(f"     Retrieved {len(retrieved_ids)} results:")
+                    for i, rid in enumerate(retrieved_ids[:5]):
+                        marker = "✓" if rid == target_cid else " "
+                        print(f"       [{i+1}] {marker} {rid}")
+                    if not retrieved_ids:
+                        print("       (no results returned)")
 
         hit_rate_1 = float(np.mean(hit_1_list))
         hit_rate_3 = float(np.mean(hit_3_list))
         hit_rate_5 = float(np.mean(hit_5_list))
+        hit_rate_10 = float(np.mean(hit_10_list))
         mrr = float(np.mean(rr_list))
         avg_latency = float(np.mean(latency_list))
+        total_misses = sum(1 for h in hit_10_list if h == 0)
 
         results_summary[method_name] = {
             "hit_rate_at_1": round(hit_rate_1, 4),
             "hit_rate_at_3": round(hit_rate_3, 4),
             "hit_rate_at_5": round(hit_rate_5, 4),
+            "hit_rate_at_10": round(hit_rate_10, 4),
             "mrr": round(mrr, 4),
             "avg_latency_ms": round(avg_latency, 2),
             "total_evaluated": total_queries,
+            "total_misses_at_10": total_misses,
         }
+
+        if debug:
+            print(f"\n  [{method_name}] Total misses @10: {total_misses}/{total_queries}")
 
     # Generate Markdown Table
     md_table = [
-        "| Retrieval Method | Hit Rate @ 1 | Hit Rate @ 3 | Hit Rate @ 5 | MRR | Avg Latency (ms) |",
-        "| :--- | :---: | :---: | :---: | :---: | :---: |",
+        "| Retrieval Method | Hit Rate @ 1 | Hit Rate @ 3 | Hit Rate @ 5 | Hit Rate @ 10 | MRR | Avg Latency (ms) |",
+        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
     ]
     for name, stats in results_summary.items():
         md_table.append(
             f"| **{name}** | {stats['hit_rate_at_1']:.2%} | {stats['hit_rate_at_3']:.2%} | "
-            f"{stats['hit_rate_at_5']:.2%} | {stats['mrr']:.4f} | {stats['avg_latency_ms']:.1f} ms |"
+            f"{stats['hit_rate_at_5']:.2%} | {stats['hit_rate_at_10']:.2%} | {stats['mrr']:.4f} | {stats['avg_latency_ms']:.1f} ms |"
         )
 
     markdown_output = "\n".join(md_table)
@@ -192,6 +218,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="Limit number of evaluation queries")
     parser.add_argument("--filter-lib", type=str, default=None, help="Filter evaluation by source library")
     parser.add_argument("--output", type=str, default="src/data/retrieval_evaluation_results.json", help="Path to output JSON")
+    parser.add_argument("--debug", action="store_true", help="Enable diagnostic logging for missed queries")
     args = parser.parse_args()
 
     run_retrieval_benchmark(
@@ -199,6 +226,7 @@ def main() -> None:
         limit=args.limit,
         filter_lib=args.filter_lib,
         output_path=args.output,
+        debug=args.debug,
     )
 
 

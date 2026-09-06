@@ -15,7 +15,7 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY}
       - RAG_LOGS_DB=/app/src/data/rag_logs.db
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-onnx}
-      - RETRIEVAL_METHOD=${RETRIEVAL_METHOD:-vector}
+      - RETRIEVAL_METHOD=${RETRIEVAL_METHOD:-hybrid_rrf}
     volumes:
       - ./src/data:/app/src/data
     extra_hosts:

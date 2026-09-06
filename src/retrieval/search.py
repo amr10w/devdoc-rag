@@ -1,12 +1,15 @@
-"""Unified retrieval engine for DevDoc RAG: Dense Vector, BM25 Keyword, and Hybrid RRF."""
+"""Unified retrieval engine for DevDoc RAG: Dense Vector, BM25S Keyword, and Hybrid RRF."""
 
 from __future__ import annotations
 
 import os
 import re
+import threading
 from collections import defaultdict
 from typing import Any
 
+import bm25s
+from bm25s.tokenization import Tokenizer
 from dotenv import find_dotenv, load_dotenv
 from qdrant_client import QdrantClient, models
 
@@ -37,9 +40,26 @@ STOP_WORDS = {
     "yourself", "yourselves"
 }
 
+# Matches the old regex exactly: keeps hyphenated/underscored identifiers
+# (source_lib, scikit-learn, get_searcher, ...) intact instead of splitting them,
+# which matters a lot for a technical-docs corpus.
+_TOKEN_RE = re.compile(r"[a-zA-Z0-9_\-]{2,}")
+
+
+def _splitter(text: str) -> list[str]:
+    return _TOKEN_RE.findall(text.lower())
+
+
+# How many times to repeat section_title text when building the indexed text,
+# to approximate field boosting (BM25S has no native per-field weighting).
+_TITLE_BOOST_REPEATS = 3
+
+# How many points to pull per Qdrant scroll page when building the BM25S index.
+_SCROLL_PAGE_SIZE = 512
+
 
 class DevDocSearcher:
-    """Unified search interface supporting vector, keyword, and hybrid RRF retrieval."""
+    """Unified search interface supporting vector, keyword (BM25S), and hybrid RRF retrieval."""
 
     def __init__(
         self,
@@ -61,6 +81,12 @@ class DevDocSearcher:
                 self.client = QdrantClient(url=qdrant_url, api_key=qdrant_key)
             else:
                 self.client = QdrantClient(path=storage_path)
+
+        # BM25S state, built lazily from the Qdrant collection.
+        self._bm25_retriever: bm25s.BM25 | None = None
+        self._bm25_docs: list[dict[str, Any]] | None = None
+        self._bm25_tokenizer: Tokenizer | None = None
+        self._bm25_lock = threading.Lock()
 
     def _build_filter(self, source_lib: str | None = None) -> models.Filter | None:
         """Build optional payload filter for source library."""
@@ -111,86 +137,135 @@ class DevDocSearcher:
             )
         return results
 
+    # ------------------------------------------------------------------
+    # BM25S-backed text search
+    # ------------------------------------------------------------------
+
+    def _fetch_all_points(self) -> list[dict[str, Any]]:
+        """Page through the entire Qdrant collection and return payload dicts."""
+        docs: list[dict[str, Any]] = []
+        offset = None
+
+        while True:
+            records, offset = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=_SCROLL_PAGE_SIZE,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            for record in records:
+                payload = record.payload or {}
+                docs.append(
+                    {
+                        "chunk_id": payload.get("chunk_id", str(record.id)),
+                        "source_lib": (payload.get("source_lib") or "").lower().strip(),
+                        "file_path": payload.get("file_path", ""),
+                        "section_title": payload.get("section_title", ""),
+                        "chunk_index": payload.get("chunk_index", 0),
+                        "content": payload.get("content", ""),
+                        "char_count": payload.get("char_count", len(payload.get("content", ""))),
+                    }
+                )
+
+            if offset is None:
+                break
+
+        return docs
+
+    @staticmethod
+    def _doc_to_indexed_text(doc: dict[str, Any]) -> str:
+        """Concatenate fields into one text blob, repeating the title to boost it."""
+        title = doc.get("section_title", "") or ""
+        content = doc.get("content", "") or ""
+        boosted_title = (title + " ") * _TITLE_BOOST_REPEATS
+        return f"{boosted_title}{content}"
+
+    def _build_bm25_index(self) -> tuple[bm25s.BM25, list[dict[str, Any]], Tokenizer]:
+        docs = self._fetch_all_points()
+        tokenizer = Tokenizer(stemmer=None, stopwords=list(STOP_WORDS), splitter=_splitter)
+
+        retriever = bm25s.BM25(corpus=docs)
+        if docs:
+            texts = [self._doc_to_indexed_text(d) for d in docs]
+            corpus_tokens = tokenizer.tokenize(texts)
+            retriever.index(corpus_tokens)
+
+        return retriever, docs, tokenizer
+
+    def _ensure_bm25_index(self) -> None:
+        if self._bm25_retriever is None:
+            with self._bm25_lock:
+                if self._bm25_retriever is None:
+                    self._bm25_retriever, self._bm25_docs, self._bm25_tokenizer = (
+                        self._build_bm25_index()
+                    )
+
+    def rebuild_text_index(self) -> None:
+        """Force a rebuild of the BM25S index from the current Qdrant collection.
+
+        Call this after ingesting new documents into Qdrant, since the cached
+        BM25S index otherwise won't know about them.
+        """
+        with self._bm25_lock:
+            self._bm25_retriever, self._bm25_docs, self._bm25_tokenizer = (
+                self._build_bm25_index()
+            )
+
     def text_search(
         self,
         query: str,
         k: int = 5,
         source_lib: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Lexical full-text search leveraging Qdrant payload text index and token matching."""
-        raw_tokens = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9_\-]{2,}\b", query)]
-        meaningful_tokens = [w for w in raw_tokens if w not in STOP_WORDS]
-        tokens = meaningful_tokens if meaningful_tokens else raw_tokens
-        if not tokens:
+        """Lexical search backed by bm25s (real Okapi BM25, whole-corpus ranked)."""
+        self._ensure_bm25_index()
+
+        if not self._bm25_docs:
             return []
 
-        must_conditions: list[models.Condition] = []
+        # Rank against the FULL corpus first, then filter by source_lib.
+        # This is the key difference from the old implementation: nothing
+        # gets truncated or dropped before scoring happens.
+        pool_size = len(self._bm25_docs)
         if source_lib:
-            must_conditions.append(
-                models.FieldCondition(
-                    key="source_lib",
-                    match=models.MatchValue(value=source_lib.lower().strip()),
-                )
-            )
+            k_pool = min(pool_size, max(k * 20, 200))
+        else:
+            k_pool = min(pool_size, k)
 
-        primary_conditions = list(must_conditions) + [
-            models.FieldCondition(
-                key="content",
-                match=models.MatchText(text=query),
-            )
-        ]
-        matched_records, _ = self.client.scroll(
-            collection_name=self.collection_name,
-            scroll_filter=models.Filter(must=primary_conditions),
-            limit=max(k * 3, 25),
-            with_payload=True,
+        query_tokens = self._bm25_tokenizer.tokenize([query], update_vocab=False)
+        doc_batches, score_batches = self._bm25_retriever.retrieve(
+            query_tokens, corpus=self._bm25_docs, k=k_pool
         )
 
-        if not matched_records:
-            should_conditions = [
-                models.FieldCondition(
-                    key="content",
-                    match=models.MatchText(text=token),
-                )
-                for token in tokens
-            ]
-            matched_records, _ = self.client.scroll(
-                collection_name=self.collection_name,
-                scroll_filter=models.Filter(
-                    must=must_conditions,
-                    should=should_conditions,
-                ),
-                limit=max(k * 4, 50),
-                with_payload=True,
-            )
+        docs = doc_batches[0]
+        scores = score_batches[0]
 
-        scored_records: list[tuple[float, Any]] = []
-        for record in matched_records:
-            payload = record.payload or {}
-            content = payload.get("content", "").lower()
-            term_hits = sum(content.count(token) for token in tokens)
-            unique_hits = sum(1 for token in tokens if token in content)
-            lexical_score = (unique_hits * 10.0) + min(term_hits, 20)
-            scored_records.append((lexical_score, record))
-
-        scored_records.sort(key=lambda x: x[0], reverse=True)
+        normalized_source_lib = source_lib.lower().strip() if source_lib else None
 
         results: list[dict[str, Any]] = []
-        for score, record in scored_records[:k]:
-            payload = record.payload or {}
+        for doc, score in zip(docs, scores):
+            if normalized_source_lib and doc.get("source_lib") != normalized_source_lib:
+                continue
+
+            content = doc.get("content", "")
             results.append(
                 {
-                    "chunk_id": payload.get("chunk_id", str(record.id)),
+                    "chunk_id": doc.get("chunk_id", ""),
                     "score": float(score),
-                    "source_lib": payload.get("source_lib", ""),
-                    "file_path": payload.get("file_path", ""),
-                    "section_title": payload.get("section_title", ""),
-                    "chunk_index": payload.get("chunk_index", 0),
-                    "content": payload.get("content", ""),
-                    "char_count": payload.get("char_count", len(payload.get("content", ""))),
+                    "source_lib": doc.get("source_lib", ""),
+                    "file_path": doc.get("file_path", ""),
+                    "section_title": doc.get("section_title", ""),
+                    "chunk_index": doc.get("chunk_index", 0),
+                    "content": content,
+                    "char_count": doc.get("char_count", len(content)),
                     "retrieval_method": "text",
                 }
             )
+            if len(results) >= k:
+                break
+
         return results
 
     def hybrid_search(
@@ -198,7 +273,7 @@ class DevDocSearcher:
         query: str,
         k: int = 5,
         source_lib: str | None = None,
-        candidate_pool: int = 20,
+        candidate_pool: int = 30,
         rrf_k: int = 60,
     ) -> list[dict[str, Any]]:
         """Combines Vector and Text retrieval with Reciprocal Rank Fusion (RRF)."""
@@ -259,7 +334,7 @@ def hybrid_search(
     query: str,
     k: int = 5,
     source_lib: str | None = None,
-    candidate_pool: int = 20,
+    candidate_pool: int = 30,
     rrf_k: int = 60,
 ) -> list[dict[str, Any]]:
     return get_searcher().hybrid_search(
@@ -269,4 +344,3 @@ def hybrid_search(
         candidate_pool=candidate_pool,
         rrf_k=rrf_k,
     )
-
