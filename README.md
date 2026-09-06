@@ -473,5 +473,5 @@ curl -X POST "https://devdoc-rag.fastapicloud.dev/feedback" \
 - [x] **Telemetry & 5 Dashboard Charts**: Initialized with 35 pre-seeded interactions; renders immediately on launch
 - [x] **RAG Retrieval & Generation**: Verified end-to-end with Hybrid RRF, citations, and source filtering
 - [x] **User Feedback Loop**: 👍 / 👎 recorded via `/feedback` and updated in SQLite database
-- [x] **GitHub Repository**: [https://github.com/amr10w/devdoc-rag/tree/main](https://github.com/amr10w/devdoc-rag/tree/main)
+- [x] **GitHub Repository**: [https://github.com/amr10w/devdoc-rag](https://github.com/amr10w/devdoc-rag)
 
