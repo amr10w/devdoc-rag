@@ -282,9 +282,10 @@ with st.sidebar:
 
     st.markdown("---")
 
-    if st.button("🗑️ Clear Conversation", use_container_width=True):
+    if st.button("🗑️ Clear Conversation", width='stretch'):
         st.session_state.messages = []
         st.session_state.feedback_given = set()
+        st.session_state.pending_query = None
         st.rerun()
 
     st.markdown("---")
@@ -299,6 +300,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "feedback_given" not in st.session_state:
     st.session_state.feedback_given = set()
+if "pending_query" not in st.session_state:
+    st.session_state.pending_query = None
 
 
 # ─────────────────────────────────────────────
@@ -402,33 +405,58 @@ with tab_chat:
                 elif log_id:
                     st.caption("✅ Feedback recorded for this response.")
 
-    # Chat input (handles Enter key natively)
+    # ── Two-phase submit, so the input can't be double-fired mid-request ──
+    #
+    # A single-phase "capture input -> block on requests.post() -> rerun"
+    # flow leaves st.chat_input() fully interactive while the network call
+    # is in flight. Pressing Enter again during that window cancels the
+    # current script run and starts a new one with the second message,
+    # which is exactly the "it let me ask another question while loading"
+    # bug. Splitting into two reruns lets us actually disable the widget
+    # for the run where the request happens.
+    if "pending_query" not in st.session_state:
+        st.session_state.pending_query = None
+
+    is_processing = st.session_state.pending_query is not None
+
     user_query = st.chat_input(
-        "Ask a technical question (e.g., How do I create a FastAPI dependency?)"
+        "Ask a technical question (e.g., How do I create a FastAPI dependency?)",
+        disabled=is_processing,
     )
 
-    if user_query:
-        # Add user message
+    # Phase 1: a new question arrived and nothing is in flight yet.
+    # Stash it and rerun immediately — the NEXT run is the one that shows
+    # the disabled input plus the spinner, so there's no window where the
+    # input is live and a request is also running.
+    if user_query and not is_processing:
         st.session_state.messages.append({"role": "user", "content": user_query})
-        with st.chat_message("user"):
-            st.markdown(user_query)
+        st.session_state.pending_query = {
+            "query": user_query,
+            "source_lib": library_filter,
+            "retrieval_method": search_method,
+            "top_k": num_chunks,
+            "rewrite_query": rewrite_toggle,
+        }
+        st.rerun()
 
-        # Generate response
+    # Phase 2: a query is pending from the previous run — the input above
+    # is already rendered disabled, so it's safe to block on the request.
+    if is_processing:
+        pending = st.session_state.pending_query
         with st.chat_message("assistant"):
             with st.spinner("Searching documentation & generating answer..."):
                 result = submit_query(
-                    query=user_query,
-                    source_lib=library_filter,
-                    retrieval_method=search_method,
-                    top_k=num_chunks,
-                    rewrite_query=rewrite_toggle,
+                    query=pending["query"],
+                    source_lib=pending["source_lib"],
+                    retrieval_method=pending["retrieval_method"],
+                    top_k=pending["top_k"],
+                    rewrite_query=pending["rewrite_query"],
                 )
 
             if result:
                 response_text = result.get("response") or "No response generated."
                 st.markdown(response_text)
 
-                # Store assistant message with full metadata
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": response_text,
@@ -440,13 +468,16 @@ with tab_chat:
                         "retrieved_chunks": _safe_list(result.get("retrieved_chunks")),
                     },
                 })
-                st.rerun()
             else:
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": "⚠️ Failed to get a response. Please check backend connectivity.",
                 })
-                st.rerun()
+
+        # Clear the pending flag regardless of success/failure so the
+        # input re-enables and a stuck request can't lock the UI forever.
+        st.session_state.pending_query = None
+        st.rerun()
 
 
 # ═══════════════════════════════════════════
@@ -467,7 +498,7 @@ with tab_monitor:
         )
     with refresh_col:
         st.write("")
-        if st.button("🔄 Refresh now", use_container_width=True):
+        if st.button("🔄 Refresh now", width='stretch'):
             fetch_metrics_summary.clear()
             fetch_logs.clear()
             st.rerun()
@@ -516,7 +547,7 @@ with tab_monitor:
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
             )
-            st.plotly_chart(fig1, use_container_width=True)
+            st.plotly_chart(fig1, width='stretch')
         else:
             st.info("Not enough data to plot query trends.")
 
@@ -543,7 +574,7 @@ with tab_monitor:
                     plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)",
                 )
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width='stretch')
             else:
                 st.info("No feedback data available.")
 
@@ -568,7 +599,7 @@ with tab_monitor:
                     plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)",
                 )
-                st.plotly_chart(fig3, use_container_width=True)
+                st.plotly_chart(fig3, width='stretch')
             else:
                 st.info("Not enough data for latency distribution.")
 
@@ -595,7 +626,7 @@ with tab_monitor:
                     plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)",
                 )
-                st.plotly_chart(fig4, use_container_width=True)
+                st.plotly_chart(fig4, width='stretch')
             else:
                 st.info("No library data available.")
 
@@ -616,7 +647,7 @@ with tab_monitor:
                     plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)",
                 )
-                st.plotly_chart(fig5, use_container_width=True)
+                st.plotly_chart(fig5, width='stretch')
             else:
                 st.info("Not enough data for response length analysis.")
 
@@ -661,7 +692,7 @@ with tab_logs:
 
         st.dataframe(
             df_logs[available_cols],
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
             column_config={
                 "timestamp": st.column_config.DatetimeColumn("Timestamp", format="YYYY-MM-DD HH:mm"),
