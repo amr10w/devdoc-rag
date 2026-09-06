@@ -12,8 +12,11 @@ Orchestrates:
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, List, Optional
+
+from dotenv import find_dotenv, load_dotenv
 
 from src.app.db import log_query
 from src.generation.ollama_client import OllamaClient, get_ollama_client
@@ -24,6 +27,12 @@ from src.generation.prompts import (
 )
 from src.retrieval.search import DevDocSearcher, get_searcher
 
+load_dotenv(find_dotenv())
+
+DEFAULT_RETRIEVAL_METHOD = (
+    os.getenv("RETRIEVAL_METHOD","vector")
+).lower().strip()
+
 
 class DevDocRAG:
     """Production RAG orchestrator for technical documentation Q&A."""
@@ -32,9 +41,14 @@ class DevDocRAG:
         self,
         searcher: DevDocSearcher | None = None,
         llm_client: OllamaClient | None = None,
+        retrieval_method: str | None = None,
     ) -> None:
         self.searcher = searcher or get_searcher()
         self.llm_client = llm_client or get_ollama_client()
+        self.retrieval_method = (
+            retrieval_method
+            or DEFAULT_RETRIEVAL_METHOD
+        ).lower().strip()
 
     def rewrite_query(self, query: str) -> str:
         """
@@ -54,7 +68,7 @@ class DevDocRAG:
         self,
         query: str,
         source_lib: str | None = None,
-        retrieval_method: str = "hybrid_rrf",
+        retrieval_method: str | None = None,
         top_k: int = 4,
         enable_query_rewriting: bool = False,
         log_to_db: bool = True,
@@ -72,17 +86,26 @@ class DevDocRAG:
             rewritten_text = self.rewrite_query(query)
             effective_query = rewritten_text
 
-        # 2. Retrieval
-        retrieval_method_norm = retrieval_method.lower().strip()
-        if retrieval_method_norm in ("vector", "dense"):
+        # 2. Retrieval: select searcher based on argument, instance setting, or env variable
+        chosen_method = (
+            retrieval_method
+            or self.retrieval_method
+            or DEFAULT_RETRIEVAL_METHOD
+        ).lower().strip()
+
+        if chosen_method == "vector":
             retrieved_chunks = self.searcher.vector_search(query=effective_query, k=top_k, source_lib=source_lib)
             method_used = "vector"
-        elif retrieval_method_norm in ("text", "keyword", "lexical"):
+        elif chosen_method == "hybrid_rrf":
+            retrieved_chunks = self.searcher.hybrid_search(query=effective_query, k=top_k, source_lib=source_lib)
+            method_used = "hybrid_rrf"
+        elif chosen_method == "text":
             retrieved_chunks = self.searcher.text_search(query=effective_query, k=top_k, source_lib=source_lib)
             method_used = "text"
         else:
-            retrieved_chunks = self.searcher.hybrid_search(query=effective_query, k=top_k, source_lib=source_lib)
-            method_used = "hybrid_rrf"
+            # Fallback to vector search
+            retrieved_chunks = self.searcher.vector_search(query=effective_query, k=top_k, source_lib=source_lib)
+            method_used = "vector"
 
         # 3. Prompt Assembly (Prompt B)
         context_str = format_context(retrieved_chunks)
@@ -124,8 +147,8 @@ class DevDocRAG:
 _rag_pipeline: DevDocRAG | None = None
 
 
-def get_rag_pipeline() -> DevDocRAG:
+def get_rag_pipeline(retrieval_method: str | None = None) -> DevDocRAG:
     global _rag_pipeline
-    if _rag_pipeline is None:
-        _rag_pipeline = DevDocRAG()
+    if _rag_pipeline is None or retrieval_method is not None:
+        _rag_pipeline = DevDocRAG(retrieval_method=retrieval_method)
     return _rag_pipeline

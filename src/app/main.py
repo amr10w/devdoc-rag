@@ -77,7 +77,7 @@ app.add_middleware(
 class AskRequest(BaseModel):
     query: str = Field(..., description="Developer question or technical query", min_length=2)
     source_lib: Optional[str] = Field(None, description="Optional library filter (e.g. docker, fastapi, pytorch, pydantic)")
-    retrieval_method: str = Field("hybrid_rrf", description="Retrieval strategy: 'hybrid_rrf', 'vector', or 'text'")
+    retrieval_method: Optional[str] = Field(None, description="Retrieval strategy: 'vector', 'hybrid_rrf', or 'text' (defaults to RETRIEVAL_METHOD env var)")
     top_k: int = Field(4, ge=1, le=10, description="Number of context chunks to retrieve")
     rewrite_query: bool = Field(False, description="Enable Query Rewriting using LLM (Best Practice)")
 
