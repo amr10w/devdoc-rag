@@ -1,17 +1,32 @@
 # DevDoc RAG - Runtime Dependencies
-# For Streamlit Cloud and pip-based deployments
+# Used for pip-based environments, Render.com, and Streamlit Community Cloud
 
-fastembed>=0.4.0
-langchain-text-splitters>=1.1.2
-numpy>=1.26.0
-ollama>=0.4.0
-pandas>=2.0.0
-pydantic>=2.0.0
-python-dotenv>=1.0.0
-qdrant-client>=1.19.0
-requests>=2.31.0
-tqdm>=4.65.0
-fastapi>=0.115.0
+# Web Framework & API
+fastapi[standard]>=0.115.0
 uvicorn>=0.30.0
+
+# Frontend & Visualization
 streamlit>=1.38.0
 plotly>=5.24.0
+
+# Vector DB & Search Engines
+qdrant-client>=1.19.0
+bm25s>=0.3.11
+minsearch>=0.2.0
+
+# Embeddings & Text Processing
+fastembed>=0.4.0
+langchain-text-splitters>=1.1.2
+
+# LLM Client
+ollama>=0.4.0
+
+# Data Manipulation & Numerics
+numpy>=1.26.0
+pandas>=2.0.0
+pydantic>=2.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.31.0
+tqdm>=4.65.0
