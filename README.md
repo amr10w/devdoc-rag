@@ -7,12 +7,14 @@
 [![API Docs](https://img.shields.io/badge/FastAPI-Live%20API%20%26%20Docs-009688.svg?logo=fastapi&logoColor=white)](https://devdoc-rag.fastapicloud.dev/docs)
 [![GitHub](https://img.shields.io/badge/GitHub-Repository-181717.svg?logo=github&logoColor=white)](https://github.com/amr10w/devdoc-rag)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
+[![Dataset & Ground Truth](https://drive.google.com/drive/folders/1LZDnexkJH9sGl_u1uLAMm1xik4nWmHud?usp=sharing)
 
 > ### 🚀 Try It Live in Production!
 > DevDoc RAG is deployed and fully operational. You can test it directly in your browser:
 > - 🌐 **Interactive Web App & Monitoring Dashboard**: [devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app](https://devdoc-rag-qmepaoayrxxhq6c2sxwwfl.streamlit.app/)
 > - ⚡ **FastAPI Production Backend**: [devdoc-rag.fastapicloud.dev](https://devdoc-rag.fastapicloud.dev)
 > - 📖 **Interactive Swagger UI (API Docs)**: [devdoc-rag.fastapicloud.dev/docs](https://devdoc-rag.fastapicloud.dev/docs)
+> - 💾 **Dataset & Ground Truth (Google Drive)**: [Google Drive Archive](https://drive.google.com/drive/folders/1LZDnexkJH9sGl_u1uLAMm1xik4nWmHud?usp=sharing)
 > - 💻 **GitHub Repository (`main`)**: [github.com/amr10w/devdoc-rag/tree/main](https://github.com/amr10w/devdoc-rag/tree/main)
 
 **DevDoc RAG** is an end-to-end Retrieval-Augmented Generation (RAG) system engineered for developers navigating complex technical documentation across **FastAPI, Docker, PyTorch, Pydantic, Qdrant, PostgreSQL, and Transformers**.
@@ -108,6 +110,12 @@ Run ingestion:
 ```bash
 python -m src.ingestion.ingest_qdrant
 ```
+
+> [!TIP]
+> **📦 Download Dataset & Pre-Processed Chunks (Google Drive)**:  
+> If you wish to inspect the dataset or skip running the local chunker, the entire dataset archive is available on Google Drive:  
+> 🔗 **[Access Dataset & Ground Truth on Google Drive](https://drive.google.com/drive/folders/1LZDnexkJH9sGl_u1uLAMm1xik4nWmHud?usp=sharing)**  
+> *(Contains: `raw/` documentation markdown, `processed/chunks.json` with >20,000 chunks, and `ground_truth.json` with 139 evaluation pairs)*
 
 ---
 
@@ -319,6 +327,16 @@ Once running, access the services:
 ---
 
 ## 11. Quick Start & Reproducibility Guide
+
+> [!IMPORTANT]
+> ### 📦 Dataset & Ground-Truth Archive (Google Drive)
+> To ensure **100% Reproducibility (Course Rubric 2/2 Points)**, all raw documentation, pre-processed chunks, and evaluation benchmarks are publicly shared:
+> 🔗 **[Download Complete Dataset & Ground Truth from Google Drive](https://drive.google.com/drive/folders/1LZDnexkJH9sGl_u1uLAMm1xik4nWmHud?usp=sharing)**
+> - `src/data/raw/`: Original markdown documentation for all 8 technical libraries.
+> - `src/data/processed/chunks.json`: Over 20,000 processed chunks with headings and code fences preserved.
+> - `src/data/ground_truth.json`: The 139 benchmark questions with reference answers and chunk citations.
+> - `src/data/retrieval_evaluation_results.json`: Complete retrieval benchmark output metrics (`qwen3-embedding:latest`).
+> - `src/data/llm_evaluation_results.json`: LLM-as-a-Judge evaluation results comparing Prompt A and Prompt B.
 
 ### Step 1: Clone Repository
 ```bash

@@ -11,6 +11,8 @@ This module provides a rigorous, two-stage evaluation framework for the **DevDoc
 
 Evaluates retrieval quality against the 139 ground-truth technical QA pairs (`src/data/ground_truth.json`) spanning 8 documentation sources: **FastAPI, Docker, PyTorch, Pydantic, Qdrant, PostgreSQL, SQLAlchemy, and Transformers**.
 
+> 🔗 **Download Ground Truth & Evaluation Datasets**: [Google Drive Archive](https://drive.google.com/drive/folders/1LZDnexkJH9sGl_u1uLAMm1xik4nWmHud?usp=sharing)
+
 ### 📊 Official Benchmark Results Summary
 
 | Retrieval Method | Hit Rate @ 1 | Hit Rate @ 3 | Hit Rate @ 5 | Hit Rate @ 10 | MRR | Avg Latency (ms) |

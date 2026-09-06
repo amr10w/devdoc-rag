@@ -10,6 +10,8 @@ This module handles the end-to-end ingestion pipeline:
 > - **Provider**: Configured via `EMBEDDING_PROVIDER` (`ollama` or `onnx`).
 > - **Default Benchmark Model**: **Ollama `qwen3-embedding:latest`** (or `BAAI/bge-small-en-v1.5` via FastEmbed).
 > - **Vector Dimension**: `384` (configurable via `VECTOR_DIMENSION`), precisely matching the Qdrant `devdoc` collection configuration with Cosine distance.
+>
+> 🔗 **Download Raw Documentation & Chunks (`chunks.json`)**: [Google Drive Archive](https://drive.google.com/drive/folders/1LZDnexkJH9sGl_u1uLAMm1xik4nWmHud?usp=sharing)
 
 ---
 
